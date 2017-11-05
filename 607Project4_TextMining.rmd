@@ -1,0 +1,234 @@
+---
+title: "607 Project 4 Text Mining"
+author: "Chunmei Zhu"
+date: "November 4, 2017"
+output: html_document
+---
+
+```{r }
+#download required packages
+suppressMessages(suppressWarnings(library(tm)))
+suppressMessages(suppressWarnings(library(RCurl)))
+suppressMessages(suppressWarnings(library(stringr)))
+suppressMessages(suppressWarnings(library(dplyr)))
+suppressMessages(suppressWarnings(library(XML)))
+suppressMessages(suppressWarnings(library(tidytext)))
+suppressMessages(suppressWarnings(library(ggplot2)))
+```
+
+## Taining data set: 
+
+I uploaded each first 30 files from spam and easy_ham files as my data.Why 30 files each? Because the limit number of files in a folder in github is 100 and my raw data folds have thoursands files. 30 is just a nic number and save time from upload but reduce the accuracy in prediction (more files is better).
+
+spam variable: a binary (0/1) variable, spam=1 while the text is spam; if from ham files then spam=0.
+
+All source files are from the link http://spamassassin.apache.org/old/publiccorpus/ .
+
+###(1) Create a list for the 30-easy_ham-file URLs  
+
+```{r}
+#Get the 30 easy_ham file names
+easy_ham_list<-"https://raw.githubusercontent.com/ada2802/607-Project-4-Text-Mining/master/easy_ham/cmds"
+
+easy_ham_df<- readLines(easy_ham_list)
+
+easy_ham_fl <- sapply(strsplit(easy_ham_df," "),"[[",2)
+
+easy_ham_30<-head(easy_ham_fl,30)
+
+ham_path <- "https://raw.githubusercontent.com/ada2802/607-Project-4-Text-Mining/master/easy_ham/"
+
+easy_ham_url_30=c()
+
+for(i in 1:30){
+  easy_ham_url_30[i] <- paste0(ham_path,easy_ham_30[i])
+}
+
+#head(easy_ham_url_30)
+```
+
+###(2) Create a list for the 30-spam2-file URLs  
+
+```{r}
+#Get the 30 spam2 file names
+spam2_list<-"https://raw.githubusercontent.com/ada2802/607-Project-4-Text-Mining/master/spam_2/cmds"
+
+spam2_df<- readLines(spam2_list)
+
+spam2_fl <- sapply(strsplit(spam2_df," "),"[[",2)
+
+spam2_30<-head(spam2_fl,30)
+
+#correct #7 file name from cmd file becasue it is unmatched the file name
+spam2_30[7] <-"00007.acefeee792b5298f8fee175f9f65c453"
+
+spam_path <- "https://raw.githubusercontent.com/ada2802/607-Project-4-Text-Mining/master/spam_2/"
+
+spam2_url_30=c()
+
+for(i in 1:30){
+  spam2_url_30[i] <- paste0(spam_path,spam2_30[i])
+}
+
+#head(spam2_url_30)
+```
+
+###(3) Easy_Ham Raw Dataset: Read easy_ham Text Messages
+
+```{r}
+#create an empty vector for easy_ham train data set
+easy_ham_train_set=c()
+ham=c()
+
+#read in ham file url one by one and store in the ham taining data set vector
+for(i in 1:30) {  
+  lines <- readLines(easy_ham_url_30[i])
+  ham <- paste(lines, collapse = ' ')
+  easy_ham_text <-data_frame(Spam=0, text=ham)
+
+  #combine all easy_ham files per file per count
+  easy_ham_train_set <- rbind(easy_ham_train_set,easy_ham_text)
+}
+
+str(easy_ham_train_set)
+```
+
+###(4) Spam Raw Dataset: Read spam Text Messages
+
+```{r}
+#create an empty vector for easy_ham train data set
+spam_train_set=c()
+spam=c()
+
+#read in spam file url one by one and store in the spam taining data set vector
+for(i in 1:30) {  
+  lines <- readLines(spam2_url_30[i])
+  spam <- paste(lines, collapse = ' ')
+  spam_text <-data_frame(Spam=1, text=spam)
+
+  #combine all spam files per file per count
+  spam_train_set <- rbind(spam_train_set,spam_text)
+}
+
+str(spam_train_set)
+```
+
+###(5) Raw Total Dataset: Easy_Ham and spam Text Messages, which total is 60 files.
+
+```{r}
+raw_train_data =c()
+raw_train_data <- rbind(easy_ham_train_set,spam_train_set)
+
+str(raw_train_data)
+#table(raw_data$Spam)
+```
+
+###(6) Basic data analysis: spam test by word count 
+
+```{r}
+#tidy data
+spam_text <- raw_train_data %>% 
+            filter(Spam==1)%>%
+            unnest_tokens(word, text) %>%
+            anti_join(stop_words ) %>%
+            count(word, sort=TRUE )
+
+#data analysis
+spam_text %>%
+    filter(n > 100) %>%
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(word, n)) +
+  geom_col() +
+  xlab(NULL) +
+  coord_flip()
+```
+
+
+##(7) Raw Dataset Clearning by using Corpus 
+
+It is a better way to clean text from raw training data messages (tdm).
+
+```{r}
+corpus <- Corpus(VectorSource(raw_train_data$text))                       #create a new corpus variable
+
+corpus.tmp <- tm_map(corpus,removePunctuation)                      #remove all punctuation
+
+corpus.tmp <- tm_map(corpus.tmp, stripWhitespace)                   #remove all whitespace
+
+corpus.tmp <- tm_map(corpus.tmp, tolower)                           #convert text to lowercase
+
+corpus.tmp <- tm_map(corpus.tmp, removeWords,stopwords("english"))  #remove all English stopwords
+
+corpus.tmp <- tm_map(corpus.tmp, stemDocument)                      #stem the words
+#str(corpus.tmp)
+
+tdm_text <- DocumentTermMatrix (corpus.tmp)                         #build a document term matrix - training data messages
+#tdm_text
+
+    
+#remove spare terms: limit tdm_text containing in at lease 5% of text
+tdm_text_0.95 = removeSparseTerms(tdm_text, 0.95)
+tdm_text_Sparse = as.data.frame(as.matrix(tdm_text_0.95))
+colnames(tdm_text_Sparse) = make.names(colnames(tdm_text_Sparse))
+
+sort(colSums(tdm_text_Sparse))
+
+#dim(tdm_text_Sparse)
+#head(tdm_text_Sparse)
+#str(tdm_text_Sparse)
+
+#Add spam variable in to the data frame
+tdm_text_Sparse$Spam = raw_train_data$Spam
+#head(tdm_text_Sparse)
+#str(tdm_text_Sparse)
+
+#Easy_Ham terms
+head(sort(colSums(subset(tdm_text_Sparse, Spam == 0))))
+#Spam terms
+head(sort(colSums(subset(tdm_text_Sparse, Spam == 1))))
+```
+
+##Classification of text
+
+###(1) Method1: Train data set and test data set
+```{r}
+train=c()
+test=c()
+train <- head(tdm_text_Sparse,42)
+test <- head(tdm_text_Sparse,-18)
+```
+
+### Method2: Train data set and test data set
+```{r}
+set.seed(2802)
+
+#for sample.split function
+library(caTools)
+ 
+#Building the model by split 70% data in training and 30% data in test
+spl <- sample.split(tdm_text_Sparse$Spam, 0.7,group = NULL)
+train = as.matrix(subset(tdm_text_Sparse, spl == TRUE))
+test = as.matrix(subset(tdm_text_Sparse, spl == FALSE))
+```
+
+
+###Classification of text by Naive Bayes Model
+
+```{r}
+#library(e1071)
+#model <- naiveBayes(class ~ ., data=as.matrix(train))
+#class(model)
+#preds <- predict(modle, newdata=test)
+
+#Accuracy
+#conf_matrix <- table(preds, test$Spam)
+```
+
+###Classification of text by SVM
+
+```{r}
+#library(RTextTools)
+#container <- create_container(as.numberic(tdm_text_Sparse), tdm_text_Sparse$text, trainSize=1:42, testSize=43:60,virgin=FALSE)
+#models <- train_models(container, algorithms=c("MAXENT", "SVM"))
+#results <- classify_models(container, models)
+```
